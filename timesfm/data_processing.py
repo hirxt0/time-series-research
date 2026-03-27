@@ -9,8 +9,6 @@ STORM_Z_THRESHOLD = 2.5
 STORM_MIN_DURATION = 30
 GAP_FILL_THRESHOLD_MIN = 60
 
-df = pd.read_csv('ARS_pos1_2024.csv')
-
 def data_aggregation(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.columns = ['seconds', 'value', 'quality', 'accuracy']
