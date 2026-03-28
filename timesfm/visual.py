@@ -35,8 +35,8 @@ def plot_gap_fill(model, df: pd.DataFrame, gap_start_dt, gap_hours=5.0, context_
         'TimesFM (bidirectional_fill)':     (filled_bidir,  *metrics(filled_bidir)),
     }
 
-    view_start = max(0, gap_start - 60)
-    view_end = min(len(series), gap_end + 60)
+    view_start = max(0, gap_start - 130)
+    view_end = min(len(series), gap_end + 130)
     time_idx = df.index[view_start:view_end]
 
     def view(arr):
