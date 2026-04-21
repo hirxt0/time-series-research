@@ -120,3 +120,5 @@ def plot_gap_fill(model, df: pd.DataFrame, gap_start_dt, gap_hours=5.0, context_
     for name, (_, mae, rmse) in results.items():
         marker = ' ←' if name == best_mae else ''
         print(f"{name:<14} {mae:>8.1f} {rmse:>8.1f}{marker}")
+
+
