@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GeoMagAnalyst</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+ 
+  :root {
+    --bg0: #0d1117;
+    --bg1: #161b22;
+    --bg2: #21262d;
+    --border: #30363d;
+    --text1: #e6edf3;
+    --text2: #8b949e;
+    --text3: #6e7681;
+    --blue: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --amber: #d29922;
+    --blue-bg: #1b3a5c;
+    --green-bg: #1a3a1a;
+    --red-bg: #3d1c1c;
+    --amber-bg: #2d2010;
+  }
+ 
+  html, body { height: 100%; background: var(--bg0); color: var(--text1); font-family: 'Courier New', Courier, monospace; font-size: 13px; }
+ 
+  /* ── TOPBAR ── */
+  .topbar {
+    height: 48px;
+    background: var(--bg1);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+    gap: 14px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .logo { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; color: var(--blue); }
+  .logo em { color: var(--green); font-style: normal; }
+  .chip {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid;
+    letter-spacing: 0.04em;
+  }
+  .chip-green { background: var(--green-bg); color: var(--green); border-color: #2a6a2a; }
+  .chip-blue  { background: var(--blue-bg);  color: var(--blue);  border-color: #1f6feb; }
+  .chip-amber { background: var(--amber-bg); color: var(--amber); border-color: #6a4a0a; }
+  .topbar-right { margin-left: auto; color: var(--text3); font-size: 11px; }
+ 
+  /* ── LAYOUT ── */
+  .layout {
+    display: grid;
+    grid-template-columns: 270px 1fr;
+    gap: 0;
+    height: calc(100vh - 48px);
+    overflow: hidden;
+  }
+ 
+  /* ── SIDEBAR ── */
+  .sidebar {
+    background: var(--bg1);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+ 
+  .section-label {
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text3);
+    margin-bottom: 8px;
+  }
+ 
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+  }
+ 
+  /* upload zone */
+  .upload-zone {
+    border: 1.5px dashed var(--border);
+    border-radius: 6px;
+    padding: 22px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+  }
+  .upload-zone:hover,
+  .upload-zone.drag { border-color: var(--blue); background: rgba(88,166,255,0.04); }
+  .upload-zone input[type="file"] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+  .upload-arrow { font-size: 20px; color: var(--blue); margin-bottom: 6px; }
+  .upload-text { font-size: 11px; color: var(--text2); line-height: 1.6; }
+  .upload-name { margin-top: 8px; font-size: 11px; color: var(--green); min-height: 16px; }
+ 
+  /* stat rows */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-key { color: var(--text2); font-size: 11px; }
+  .stat-val { font-size: 12px; font-weight: 600; }
+  .v-blue   { color: var(--blue); }
+  .v-green  { color: var(--green); }
+  .v-amber  { color: var(--amber); }
+  .v-red    { color: var(--red); }
+ 
+  /* select */
+  select {
+    width: 100%;
+    background: var(--bg0);
+    border: 1px solid var(--border);
+    color: var(--text1);
+    border-radius: 5px;
+    padding: 6px 8px;
+    font-family: inherit;
+    font-size: 11px;
+    margin-top: 5px;
+    cursor: pointer;
+    outline: none;
+  }
+  select:focus { border-color: var(--blue); }
+ 
+  .run-btn {
+    width: 100%;
+    margin-top: 4px;
+    background: #1a6e2e;
+    color: #fff;
+    border: 1px solid #2a8a3e;
+    border-radius: 6px;
+    padding: 9px;
+    font-family: inherit;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .run-btn:hover { background: #238636; }
+  .run-btn:disabled { background: var(--bg2); color: var(--text3); border-color: var(--border); cursor: not-allowed; }
+ 
+  /* progress */
+  .progress-wrap { margin-top: 8px; display: none; }
+  .progress-wrap.visible { display: block; }
+  .progress-bar-bg { background: var(--bg0); border-radius: 4px; height: 4px; overflow: hidden; }
+  .progress-bar { height: 4px; background: var(--green); border-radius: 4px; width: 0%; transition: width 0.4s; }
+  .progress-label { font-size: 10px; color: var(--text3); margin-top: 4px; }
+ 
+  /* ── CONTENT ── */
+  .content {
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+ 
+  .panel {
+    background: var(--bg1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+ 
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .panel-title { font-size: 12px; font-weight: 600; color: var(--text1); }
+ 
+  /* legend */
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; }
+  .leg { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--text2); }
+  .leg-sq { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+ 
+  /* chart wrapper */
+  .chart-wrap { position: relative; width: 100%; }
+ 
+  /* two-col grid */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+ 
+  /* metric cards inside panel */
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+  .metric { background: var(--bg0); border-radius: 6px; padding: 10px 12px; }
+  .metric-label { font-size: 9px; color: var(--text3); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 3px; }
+  .metric-val { font-size: 20px; font-weight: 700; }
+ 
+  /* tabs */
+  .tabs { display: flex; gap: 3px; background: var(--bg0); border-radius: 6px; padding: 3px; width: fit-content; margin-bottom: 12px; }
+  .tab { font-size: 11px; padding: 5px 12px; border-radius: 4px; cursor: pointer; color: var(--text2); border: none; background: none; font-family: inherit; transition: background 0.15s, color 0.15s; }
+  .tab.active { background: #1f6feb; color: #fff; }
+ 
+  /* zoom section */
+  .zoom-hint-btn {
+    font-size: 10px; color: var(--blue); cursor: pointer;
+    background: none; border: none; font-family: inherit;
+    text-decoration: underline; padding: 0;
+  }
+  .zoom-hint-btn:hover { color: #79b8ff; }
+ 
+  /* zoom modal (no fixed, using in-flow overlay) */
+  .zoom-overlay {
+    display: none;
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(13,17,23,0.92);
+    border-radius: 8px;
+    z-index: 10;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 10px;
+    padding: 20px;
+  }
+  .zoom-overlay.open { display: flex; }
+  .zoom-close {
+    position: absolute; top: 10px; right: 14px;
+    background: none; border: none; color: var(--text2); font-size: 16px; cursor: pointer; font-family: inherit;
+  }
+  .zoom-close:hover { color: var(--text1); }
+ 
+  /* anomaly tags */
+  .tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .tag { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 3px; border: 1px solid; }
+ 
+  /* empty state */
+  .empty-state { color: var(--text3); font-size: 11px; text-align: center; padding: 30px 0; }
+ 
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+ 
+<div class="topbar">
+  <div class="logo">GeoMag<em>Analyst</em></div>
+  <div class="chip chip-green">ARS pos1</div>
+  <div class="chip chip-blue">1-min resolution</div>
+  <div id="status-chip" class="chip chip-amber" style="display:none">обработка...</div>
+  <div class="topbar-right">v0.1 · pre-defense build</div>
+</div>
+ 
+<div class="layout">
+ 
+  <!-- ═══ SIDEBAR ═══ -->
+  <div class="sidebar">
+ 
+    <div class="card">
+      <div class="section-label">Загрузка данных</div>
+      <div class="upload-zone" id="drop-zone">
+        <input type="file" id="file-input" accept=".csv" />
+        <div class="upload-arrow">↑</div>
+        <div class="upload-text">CSV файл с геомагнитными данными<br>или перетащите сюда</div>
+        <div class="upload-name" id="file-name">файл не выбран</div>
+      </div>
+    </div>
+ 
+    <div class="card">
+      <div class="section-label">EDA · сводка</div>
+      <div class="stat-row"><span class="stat-key">Записей</span><span class="stat-val v-blue" id="eda-records">—</span></div>
+      <div class="stat-row"><span class="stat-key">Период</span><span class="stat-val" id="eda-period">—</span></div>
+      <div class="stat-row"><span class="stat-key">Шаг (мин)</span><span class="stat-val" id="eda-step">—</span></div>
+      <div class="stat-row"><span class="stat-key">Пропуски</span><span class="stat-val v-amber" id="eda-gaps">—</span></div>
+      <div class="stat-row"><span class="stat-key">Аномалии</span><span class="stat-val v-red" id="eda-anomalies">—</span></div>
+      <div class="stat-row"><span class="stat-key">MAE (импутация)</span><span class="stat-val v-green" id="eda-mae">—</span></div>
+    </div>
+ 
+    <div class="card">
+      <div class="section-label">Параметры</div>
+      <div class="stat-key" style="margin-bottom:4px">Модель импутации</div>
+      <select id="sel-impute">
+        <option value="lightgbm" selected>LightGBM</option>
+        <option value="catboost">CatBoost</option>
+      </select>
+      <div class="stat-key" style="margin-top:10px; margin-bottom:4px">Детекция аномалий</div>
+      <select id="sel-anomaly">
+        <option value="iforest" selected>Isolation Forest</option>
+        <option value="dcdetector">DCDetector</option>
+      </select>
+      <button class="run-btn" id="run-btn" disabled>▶ Запустить анализ</button>
+      <div class="progress-wrap" id="progress-wrap">
+        <div class="progress-bar-bg"><div class="progress-bar" id="progress-bar"></div></div>
+        <div class="progress-label" id="progress-label">загрузка файла...</div>
+      </div>
+    </div>
+ 
+  </div>
+  <!-- /sidebar -->
+ 
+  <!-- ═══ CONTENT ═══ -->
+  <div class="content">
+ 
+    <!-- Main time series -->
+    <div class="panel" style="position: relative;" id="main-panel">
+      <div class="panel-header">
+        <div class="panel-title">Временной ряд · геомагнитный вектор (нТл)</div>
+        <div class="legend">
+          <div class="leg"><div class="leg-sq" style="background:#58a6ff"></div>оригинал</div>
+          <div class="leg"><div class="leg-sq" style="background:#3fb950"></div>заполненные пропуски</div>
+          <div class="leg"><div class="leg-sq" style="background:rgba(248,81,73,0.35)"></div>аномалии</div>
+        </div>
+      </div>
+      <div class="chart-wrap" style="height:220px">
+        <canvas id="chart-main" role="img" aria-label="Временной ряд геомагнитного вектора"></canvas>
+      </div>
+      <div style="margin-top:8px; text-align:right">
+        <button class="zoom-hint-btn" id="zoom-btn" style="display:none">+ показать пропуск крупно</button>
+      </div>
+ 
+      <!-- Zoom overlay (in-flow, not fixed) -->
+      <div class="zoom-overlay" id="zoom-overlay">
+        <button class="zoom-close" id="zoom-close">✕</button>
+        <div style="font-size:11px; color:var(--text2); margin-bottom:4px">Zoom · заполненный пропуск (~2ч)</div>
+        <div class="chart-wrap" style="height:180px; width:100%">
+          <canvas id="chart-zoom" role="img" aria-label="Zoom на заполненный пропуск"></canvas>
+        </div>
+        <div style="font-size:10px; color:var(--text3)">Зелёная пунктирная линия — предсказание LightGBM · жёлтая зона — окно пропуска</div>
+      </div>
+    </div>
+ 
+    <!-- Bottom two panels -->
+    <div class="two-col">
+ 
+      <!-- Anomaly panel -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Детекция аномалий · <span id="anomaly-model-label">Isolation Forest</span></div>
+        </div>
+        <div class="metrics">
+          <div class="metric"><div class="metric-label">найдено</div><div class="metric-val v-red" id="m-anomalies">—</div></div>
+          <div class="metric"><div class="metric-label">score порог</div><div class="metric-val v-amber" id="m-threshold">—</div></div>
+          <div class="metric"><div class="metric-label">покрытие</div><div class="metric-val v-blue" id="m-coverage">—</div></div>
+        </div>
+        <div class="chart-wrap" style="height:130px">
+          <canvas id="chart-anomaly" role="img" aria-label="Распределение anomaly score"></canvas>
+        </div>
+        <div class="tag-row">
+          <span class="tag" style="background:var(--red-bg);color:var(--red);border-color:#6e2a2a">магнитная буря</span>
+          <span class="tag" style="background:var(--blue-bg);color:var(--blue);border-color:#1f6feb">выброс</span>
+          <span class="tag" style="background:var(--green-bg);color:var(--green);border-color:#2a6a2a">заполнено</span>
+        </div>
+      </div>
+ 
+      <!-- Gap imputation panel -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Импутация пропусков</div>
+        </div>
+        <div class="metrics" style="grid-template-columns: 1fr 1fr;">
+          <div class="metric"><div class="metric-label">пропусков</div><div class="metric-val v-amber" id="m-gaps">—</div></div>
+          <div class="metric"><div class="metric-label">MAE</div><div class="metric-val v-green" id="m-mae">—</div></div>
+        </div>
+        <div class="tabs">
+          <button class="tab active" data-tab="dist">Распределение длин</button>
+          <button class="tab" data-tab="model">Сравнение моделей</button>
+        </div>
+        <div class="chart-wrap" style="height:130px" id="tab-dist">
+          <canvas id="chart-gaps" role="img" aria-label="Распределение длин пропусков"></canvas>
+        </div>
+        <div class="chart-wrap" style="height:130px; display:none" id="tab-model">
+          <canvas id="chart-models" role="img" aria-label="Сравнение MAE моделей"></canvas>
+        </div>
+      </div>
+ 
+    </div>
+ 
+    <div class="empty-state" id="empty-hint">
+      Загрузите CSV файл и нажмите «Запустить анализ»
+    </div>
+ 
+  </div>
+  <!-- /content -->
+</div>
+ 
+<script>
+// ═══════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════
+let parsedData = null;
+let charts = {};
+const API_BASE = 'http://localhost:8000';   
+ 
+// ═══════════════════════════════════════════════
+//  FILE UPLOAD
+// ═══════════════════════════════════════════════
+const dropZone  = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const fileNameEl= document.getElementById('file-name');
+const runBtn    = document.getElementById('run-btn');
+ 
+fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drag'); });
+dropZone.addEventListener('dragleave', ()=> dropZone.classList.remove('drag'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag');
+  handleFile(e.dataTransfer.files[0]);
+});
+ 
+function handleFile(file) {
+  if (!file || !file.name.endsWith('.csv')) { alert('Нужен CSV файл'); return; }
+  fileNameEl.textContent = file.name;
+  runBtn.disabled = false;
+ 
+  const reader = new FileReader();
+  reader.onload = ev => {
+    parsedData = parseCSV(ev.target.result);
+    showEDA(parsedData);
+  };
+  reader.readAsText(file);
+}
+ 
+// ═══════════════════════════════════════════════
+//  CSV PARSER  (timestamp | value | q1 | q2)
+// ═══════════════════════════════════════════════
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  const header = lines[0].split(',').map(h => h.trim());
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const parts = lines[i].split(',');
+    if (parts.length < 2) continue;
+    rows.push({
+      ts:    parts[0].trim(),
+      value: parseFloat(parts[1]),
+      q1:    parts[2] !== undefined ? parseFloat(parts[2]) : null,
+      q2:    parts[3] !== undefined ? parseFloat(parts[3]) : null,
+    });
+  }
+  return { header, rows };
+}
+ 
+// ═══════════════════════════════════════════════
+//  EDA  (client-side preview, real EDA от FastAPI)
+// ═══════════════════════════════════════════════
+function showEDA(data) {
+  const rows = data.rows;
+  const values = rows.map(r => r.value).filter(v => !isNaN(v));
+  const gaps = rows.filter(r => isNaN(r.value) || r.value === null).length;
+ 
+  document.getElementById('eda-records').textContent = rows.length.toLocaleString('ru');
+  document.getElementById('eda-period').textContent  = rows[0]?.ts.slice(0, 7) + ' – ' + rows[rows.length-1]?.ts.slice(0, 7);
+  document.getElementById('eda-gaps').textContent    = gaps + ' (' + ((gaps/rows.length)*100).toFixed(2) + '%)';
+  document.getElementById('eda-anomalies').textContent = '—';
+  document.getElementById('eda-mae').textContent = '—';
+  document.getElementById('eda-step').textContent = '1';
+ 
+  renderMainChart(rows, [], []);
+}
+ 
+// ═══════════════════════════════════════════════
+//  RUN ANALYSIS  (POST to FastAPI)
+// ═══════════════════════════════════════════════
+runBtn.addEventListener('click', async () => {
+  if (!parsedData) return;
+ 
+  const prog = document.getElementById('progress-wrap');
+  const bar  = document.getElementById('progress-bar');
+  const lbl  = document.getElementById('progress-label');
+  const chip = document.getElementById('status-chip');
+ 
+  prog.classList.add('visible');
+  chip.style.display = 'inline-block';
+  runBtn.disabled = true;
+  document.getElementById('empty-hint').style.display = 'none';
+ 
+  const steps = [
+    [10,  'разбор CSV...'],
+    [30,  'EDA...'],
+    [55,  'детекция аномалий...'],
+    [80,  'импутация пропусков...'],
+    [95,  'формирование результатов...'],
+  ];
+ 
+  // Fake progress while waiting for API
+  let si = 0;
+  const tick = setInterval(() => {
+    if (si >= steps.length) { clearInterval(tick); return; }
+    bar.style.width = steps[si][0] + '%';
+    lbl.textContent = steps[si][1];
+    si++;
+  }, 600);
+ 
+  try {
+    // ─── реальный запрос к FastAPI ───
+    // const formData = new FormData();
+    // const blob = new Blob([/* csv text */], {type:'text/csv'});
+    // formData.append('file', blob, 'data.csv');
+    // formData.append('impute_model', document.getElementById('sel-impute').value);
+    // formData.append('anomaly_model', document.getElementById('sel-anomaly').value);
+    // const resp = await fetch(API_BASE + '/analyze', { method:'POST', body: formData });
+    // const result = await resp.json();
+ 
+    // ─── ДЕМО-данные пока нет бэкенда ───
+    await new Promise(r => setTimeout(r, 3200));
+    const result = generateDemoResult(parsedData.rows);
+ 
+    clearInterval(tick);
+    bar.style.width = '100%';
+    lbl.textContent = 'готово';
+ 
+    applyResult(result);
+ 
+  } catch(err) {
+    clearInterval(tick);
+    lbl.textContent = 'ошибка: ' + err.message;
+    lbl.style.color = 'var(--red)';
+  }
+ 
+  chip.style.display = 'none';
+  runBtn.disabled = false;
+  setTimeout(() => { prog.classList.remove('visible'); bar.style.width='0%'; lbl.style.color=''; }, 2000);
+});
+ 
+// ═══════════════════════════════════════════════
+//  DEMO RESULT GENERATOR
+// ═══════════════════════════════════════════════
+function generateDemoResult(rows) {
+  const n = rows.length;
+  const values = rows.map(r => r.value);
+ 
+  // mark ~0.08% as gaps
+  const gapIndices = new Set();
+  const gapStart = Math.floor(n * 0.35);
+  for (let i = gapStart; i < gapStart + 120; i++) gapIndices.add(i);
+ 
+  // mark ~0.5% as anomalies
+  const anomalyIndices = new Set();
+  for (let i = 0; i < n; i++) {
+    if (Math.random() < 0.005) anomalyIndices.add(i);
+  }
+ 
+  // filled values (simple interpolation for demo)
+  const filled = [...values];
+  for (const idx of gapIndices) {
+    const prev = values[gapStart - 1] || 50000;
+    const next = values[gapStart + 121] || 50000;
+    filled[idx] = prev + (next - prev) * ((idx - gapStart) / 120) + (Math.random() - 0.5) * 20;
+  }
+ 
+  // anomaly scores
+  const scores = Array.from({length: 60}, () => -(Math.random() * 0.5));
+  const anomalyScores = Array.from({length: 15}, () => -(0.12 + Math.random() * 0.3));
+ 
+  const gapLengths = [1,1,2,2,2,3,3,5,10,15,30,60,90,120];
+ 
+  return {
+    rows, values, filled,
+    gapIndices: [...gapIndices],
+    anomalyIndices: [...anomalyIndices],
+    anomalyCount: anomalyIndices.size,
+    gapCount: gapIndices.size,
+    mae: 347.2,
+    threshold: -0.12,
+    coverage: ((anomalyIndices.size / n) * 100).toFixed(2),
+    scores: [...scores, ...anomalyScores].sort(() => Math.random() - 0.5),
+    gapLengths,
+    modelMAEs: { LightGBM: 347, CatBoost: 412, 'Linear': 680, 'ffill': 890 }
+  };
+}
+ 
+// ═══════════════════════════════════════════════
+//  APPLY RESULT → UI
+// ═══════════════════════════════════════════════
+function applyResult(r) {
+  document.getElementById('eda-anomalies').textContent = r.anomalyCount;
+  document.getElementById('eda-mae').textContent = '~' + Math.round(r.mae) + ' нТл';
+  document.getElementById('m-anomalies').textContent = r.anomalyCount;
+  document.getElementById('m-threshold').textContent = r.threshold.toFixed(2);
+  document.getElementById('m-coverage').textContent  = r.coverage + '%';
+  document.getElementById('m-gaps').textContent = r.gapCount;
+  document.getElementById('m-mae').textContent  = Math.round(r.mae);
+  document.getElementById('anomaly-model-label').textContent =
+    document.getElementById('sel-anomaly').value === 'iforest' ? 'Isolation Forest' : 'DCDetector';
+ 
+  renderMainChart(r.rows, r.gapIndices, r.anomalyIndices, r.filled);
+  renderAnomalyChart(r.scores, r.threshold);
+  renderGapDistChart(r.gapLengths);
+  renderModelChart(r.modelMAEs);
+ 
+  document.getElementById('zoom-btn').style.display = 'inline-block';
+  renderZoomChart(r.rows, r.gapIndices, r.filled);
+}
+ 
+// ═══════════════════════════════════════════════
+//  CHARTS
+// ═══════════════════════════════════════════════
+ 
+function destroyChart(id) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+}
+ 
+// 1. Main time series
+function renderMainChart(rows, gapIdxArr, anomalyIdxArr, filled) {
+  destroyChart('main');
+  const n = rows.length;
+  const step = Math.max(1, Math.floor(n / 800));
+  const labels = [], orig = [], imp = [], anomBg = [];
+  const gapSet = new Set(gapIdxArr);
+  const anomSet = new Set(anomalyIdxArr);
+ 
+  for (let i = 0; i < n; i += step) {
+    labels.push(rows[i].ts ? rows[i].ts.slice(0, 10) : i);
+    orig.push(gapSet.has(i) ? null : rows[i].value);
+    imp.push(gapSet.has(i) && filled ? filled[i] : null);
+    anomBg.push(anomSet.has(i) ? (filled ? filled[i] : rows[i].value) : null);
+  }
+ 
+  const ctx = document.getElementById('chart-main').getContext('2d');
+  charts['main'] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'оригинал',          data: orig,   borderColor: '#58a6ff', borderWidth: 1,   pointRadius: 0, tension: 0.2, fill: false },
+        { label: 'заполненный пропуск',data: imp,   borderColor: '#3fb950', borderWidth: 2,   pointRadius: 3, tension: 0.3, fill: false, borderDash: [4,3] },
+        { label: 'аномалии',          data: anomBg, borderColor: 'transparent', backgroundColor: 'rgba(248,81,73,0.6)', borderWidth: 0, pointRadius: 4, pointStyle: 'circle', showLine: false },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+      scales: {
+        x: { ticks: { color: '#8b949e', font: { size: 9 }, maxTicksLimit: 10, maxRotation: 0 }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#8b949e', font: { size: 9 } }, grid: { color: '#21262d' } }
+      }
+    }
+  });
+}
+ 
+// 2. Anomaly score distribution
+function renderAnomalyChart(scores, threshold) {
+  destroyChart('anomaly');
+  const bins = 30;
+  const min = Math.min(...scores), max = Math.max(...scores);
+  const bw = (max - min) / bins;
+  const counts = Array(bins).fill(0);
+  scores.forEach(s => {
+    const b = Math.min(bins - 1, Math.floor((s - min) / bw));
+    counts[b]++;
+  });
+  const binLabels = counts.map((_, i) => (min + i * bw).toFixed(2));
+  const threshBin = Math.floor((threshold - min) / bw);
+ 
+  const colors = counts.map((_, i) => i >= threshBin ? 'rgba(248,81,73,0.8)' : 'rgba(88,166,255,0.7)');
+ 
+  const ctx = document.getElementById('chart-anomaly').getContext('2d');
+  charts['anomaly'] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: binLabels, datasets: [{ data: counts, backgroundColor: colors, borderWidth: 0 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8b949e', font: { size: 8 }, maxTicksLimit: 6, maxRotation: 0 }, grid: { display: false } },
+        y: { ticks: { color: '#8b949e', font: { size: 8 } }, grid: { color: '#21262d' } }
+      }
+    }
+  });
+}
+ 
+// 3. Gap length distribution
+function renderGapDistChart(gapLengths) {
+  destroyChart('gaps');
+  const counts = {};
+  gapLengths.forEach(l => { counts[l] = (counts[l] || 0) + 1; });
+  const labels = Object.keys(counts).map(Number).sort((a,b)=>a-b);
+  const data = labels.map(l => counts[l]);
+ 
+  const ctx = document.getElementById('chart-gaps').getContext('2d');
+  charts['gaps'] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: labels.map(l => l + ' мин'), datasets: [{ data, backgroundColor: 'rgba(210,153,34,0.7)', borderWidth: 0 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8b949e', font: { size: 8 }, maxRotation: 45, autoSkip: false }, grid: { display: false } },
+        y: { ticks: { color: '#8b949e', font: { size: 8 } }, grid: { color: '#21262d' } }
+      }
+    }
+  });
+}
+ 
+// 4. Model MAE comparison
+function renderModelChart(maes) {
+  destroyChart('models');
+  const labels = Object.keys(maes);
+  const data = Object.values(maes);
+  const colors = data.map((v, i) => i === 0 ? 'rgba(63,185,80,0.8)' : 'rgba(88,166,255,0.5)');
+ 
+  const ctx = document.getElementById('chart-models').getContext('2d');
+  charts['models'] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'MAE (нТл)', data, backgroundColor: colors, borderWidth: 0 }] },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8b949e', font: { size: 9 } }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#e6edf3', font: { size: 10 } }, grid: { display: false } }
+      }
+    }
+  });
+}
+ 
+// 5. Zoom chart
+function renderZoomChart(rows, gapIdxArr, filled) {
+  destroyChart('zoom');
+  if (!gapIdxArr.length || !filled) return;
+  const gapSet = new Set(gapIdxArr);
+  const gStart = Math.min(...gapIdxArr);
+  const gEnd   = Math.max(...gapIdxArr);
+  const pad    = 60;
+  const from   = Math.max(0, gStart - pad);
+  const to     = Math.min(rows.length - 1, gEnd + pad);
+ 
+  const labels = [], orig = [], imp = [];
+  for (let i = from; i <= to; i++) {
+    labels.push(rows[i]?.ts ? rows[i].ts.slice(11, 16) : i);
+    orig.push(gapSet.has(i) ? null : rows[i].value);
+    imp.push(gapSet.has(i) ? filled[i] : null);
+  }
+ 
+  const ctx = document.getElementById('chart-zoom').getContext('2d');
+  charts['zoom'] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'оригинал',           data: orig, borderColor: '#58a6ff', borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false },
+        { label: 'импутация LightGBM', data: imp,  borderColor: '#3fb950', borderWidth: 2,   pointRadius: 2, tension: 0.3, fill: false, borderDash: [5,3] },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false },
+        annotation: { annotations: {
+          gapBox: { type: 'box', xMin: pad, xMax: pad + (gEnd - gStart), backgroundColor: 'rgba(210,153,34,0.08)', borderColor: 'rgba(210,153,34,0.4)', borderWidth: 1 }
+        }}
+      },
+      scales: {
+        x: { ticks: { color: '#8b949e', font: { size: 9 }, maxTicksLimit: 8, maxRotation: 0 }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#8b949e', font: { size: 9 } }, grid: { color: '#21262d' } }
+      }
+    }
+  });
+}
+ 
+// ═══════════════════════════════════════════════
+//  TABS
+// ═══════════════════════════════════════════════
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    const target = tab.dataset.tab;
+    document.getElementById('tab-dist').style.display  = target === 'dist'  ? 'block' : 'none';
+    document.getElementById('tab-model').style.display = target === 'model' ? 'block' : 'none';
+  });
+});
+ 
+// ═══════════════════════════════════════════════
+//  ZOOM TOGGLE
+// ═══════════════════════════════════════════════
+document.getElementById('zoom-btn').addEventListener('click', () => {
+  document.getElementById('zoom-overlay').classList.add('open');
+});
+document.getElementById('zoom-close').addEventListener('click', () => {
+  document.getElementById('zoom-overlay').classList.remove('open');
+});
+</script>
+</body>
+</html>
