@@ -204,30 +204,31 @@ def _days_to_month(days: np.ndarray) -> np.ndarray:
 
 def _lag_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Лаговые и скользящие признаки на value_detrended.
-    Окна в минутах (уже после ресемплинга).
+    Лаговые и скользящие признаки
     """
     df = df.copy()
     v = df['value']
-
-    df['lag_mean_30min'] = v.rolling(30).mean().shift(1)
-    df['lag_mean_1h']    = v.rolling(60).mean().shift(1)
-    df['lag_mean_3h']    = v.rolling(180).mean().shift(1)
-    df['lag_mean_6h']    = v.rolling(360).mean().shift(1)
-
-    df['diff_1h']  = v.diff(60)
-    df['diff_3h']  = v.diff(180)
-
-    df['slope_1h'] = (
-        v.rolling(60).mean() - v.rolling(60).mean().shift(60)
-    )
-    df['slope_3h'] = (
-        v.rolling(180).mean() - v.rolling(180).mean().shift(180)
-    )
-
-    df['value_ema']        = v.ewm(span=60).mean()
-    df['rolling_std_24h']  = v.rolling(window=1440, min_periods=720).std()
-
+    
+    # Временно заполняем NaN для расчёта лагов
+    v_temp = v.fillna(method='ffill').fillna(method='bfill')
+    
+    df['lag_mean_30min'] = v_temp.rolling(30, min_periods=1).mean().shift(1)
+    df['lag_mean_1h'] = v_temp.rolling(60, min_periods=1).mean().shift(1)
+    df['lag_mean_3h'] = v_temp.rolling(180, min_periods=1).mean().shift(1)
+    df['lag_mean_6h'] = v_temp.rolling(360, min_periods=1).mean().shift(1)
+    
+    df['diff_1h'] = v_temp.diff(60)
+    df['diff_3h'] = v_temp.diff(180)
+    
+    df['slope_1h'] = df['lag_mean_1h'] - df['lag_mean_1h'].shift(60)
+    df['slope_3h'] = df['lag_mean_3h'] - df['lag_mean_3h'].shift(180)
+    
+    df['value_ema'] = v_temp.ewm(span=60, adjust=False).mean()
+    df['rolling_std_24h'] = v_temp.rolling(1440, min_periods=1).std()
+    
+    df['trend'] = v_temp.rolling(1440, min_periods=1).mean()
+    df['value_detrended'] = v_temp - df['trend']
+    
     return df
 
 
@@ -235,7 +236,6 @@ def _build_meta(
     df_raw: pd.DataFrame,
     df_min: pd.DataFrame,
     gap_info: dict,
-    artifact_info: dict,
 ) -> dict:
     total_min = len(df_min)
     gap_min   = gap_info['total_gap_min']
@@ -249,8 +249,9 @@ def _build_meta(
         'gap_max_min':     gap_info['max_gap_min'],
         'gap_distribution': gap_info['length_distribution'],
         'gap_blocks':      gap_info['blocks'],
-        'artifact_count':  artifact_info['count'],
-        'artifact_pct':    artifact_info['pct'],
+        'gap_lengths':     [b['length_min'] for b in gap_info['blocks']],  # ← ДОБАВИТЬ
+        'artifact_count':  0,
+        'artifact_pct':    0,
         'value_mean':      round(float(df_min['value'].mean(skipna=True)), 2),
         'value_std':       round(float(df_min['value'].std(skipna=True)), 2),
         'value_min':       round(float(df_min['value'].min(skipna=True)), 2),
