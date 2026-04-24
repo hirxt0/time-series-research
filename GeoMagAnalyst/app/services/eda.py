@@ -126,7 +126,6 @@ def _resample_to_minutes(df: pd.DataFrame) -> Tuple[pd.DataFrame, dict]:
 
     return df_min, gap_info
 
-
 def _find_gap_blocks(gap_mask: np.ndarray, seconds: np.ndarray) -> dict:
     """
     Находит непрерывные блоки пропусков.
@@ -210,7 +209,7 @@ def _lag_features(df: pd.DataFrame) -> pd.DataFrame:
     v = df['value']
     
     # Временно заполняем NaN для расчёта лагов
-    v_temp = v.fillna(method='ffill').fillna(method='bfill')
+    v_temp = v.ffill().bfill()
     
     df['lag_mean_30min'] = v_temp.rolling(30, min_periods=1).mean().shift(1)
     df['lag_mean_1h'] = v_temp.rolling(60, min_periods=1).mean().shift(1)
