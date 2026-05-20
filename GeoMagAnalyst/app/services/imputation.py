@@ -1,121 +1,250 @@
-# app/services/imputation.py
-
 import pickle
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple
 import os
 
-# Константы
 TARGET_STEP = 60
 PTS_MIN = 20
 PTS_HOUR = 1200
 PTS_DAY = 28800
 TREND_WINDOW = PTS_HOUR * 24
 
+GAP_CATEGORIES = {
+    "short":  (1,   30),   
+    "medium": (30,  120),   
+    "long":   (120, 99999), 
+}
+
+
+
+def _load_model_and_features(model_name: str) -> Tuple[Any, List[str]]:
+    base_path = "models/imputation"
+    model_pkl = f"{base_path}/lightgbm_model.pkl"
+    model_txt = f"{base_path}/lgb_model.txt"
+    features_path = f"{base_path}/feature_cols.pkl"
+
+    if not os.path.exists(features_path):
+        raise FileNotFoundError(f"Feature file not found: {features_path}")
+    with open(features_path, "rb") as f:
+        feature_cols = pickle.load(f)
+
+    if os.path.exists(model_pkl):
+        with open(model_pkl, "rb") as f:
+            model = pickle.load(f)
+    elif os.path.exists(model_txt):
+        model = lgb.Booster(model_file=model_txt)
+    else:
+        raise FileNotFoundError("Model file not found")
+
+    return model, feature_cols
+
+
+
+def _fill_gaps(df: pd.DataFrame, model: Any, feature_cols: List[str]) -> pd.Series:
+    """
+    Заполняет пропуски последовательно, обновляя значение в df после
+    каждого предсказания чтобы следующий шаг видел уже заполненные данные.
+    """
+    df_work = df.copy()
+    filled = df_work["value"].copy()
+    gap_indices  = df_work.index[df_work["is_gap"].astype(bool)].tolist()
+
+    for feat in feature_cols:
+        if feat not in df_work.columns:
+            df_work[feat] = 0.0
+
+    for idx in gap_indices:
+        row = df_work.loc[idx, feature_cols]
+        has_nan = row.isna().any()
+
+        if not has_nan:
+            X_pred  = row.values.reshape(1, -1)
+            pred = float(model.predict(X_pred)[0])
+        else:
+            prev = filled[:idx].dropna()
+            next_ = filled[idx + 1:].dropna()
+            if len(prev) > 0:
+                pred = float(prev.iloc[-1])
+            elif len(next_) > 0:
+                pred = float(next_.iloc[0])
+            else:
+                pred = float(filled.mean())
+
+        filled.loc[idx] = pred
+        df_work.loc[idx, "value"] = pred  
+
+    return filled
+
+
+
+def _make_synthetic_gap(
+    df: pd.DataFrame,
+    gap_length_min: int = 120,
+    seed: int = 42,
+) -> Tuple[pd.DataFrame, int, int]:
+    """
+    Вырезает один непрерывный кусок известных данных длиной gap_length_min,
+    помечает его как пропуск. Возвращает изменённый df и индексы start/end.
+
+    Выбираем участок подальше от краёв чтобы лаги были доступны.
+    """
+    rng = np.random.default_rng(seed)
+    known_idx  = df.index[~df["is_gap"].astype(bool)].tolist()
+
+    margin = 1440
+    candidates = [
+        i for i in known_idx
+        if i >= margin
+        and i + gap_length_min < len(df) - margin
+        and all((i + k) in known_idx for k in range(gap_length_min))
+    ]
+
+    if not candidates:
+        raise ValueError(
+            f"Не удалось найти непрерывный кусок длиной {gap_length_min} мин "
+            f"среди известных данных"
+        )
+
+    start = int(rng.choice(candidates[:max(1, len(candidates) // 2)]))
+    end = start + gap_length_min
+
+    df_syn = df.copy()
+    df_syn.loc[start:end - 1, "value"]  = np.nan
+    df_syn.loc[start:end - 1, "is_gap"] = 1
+
+    return df_syn, start, end
+
+
+def _mae_by_category(
+    ground_truth: pd.Series,
+    predicted: pd.Series,
+    gap_start: int,
+    gap_end: int,
+) -> Dict[str, float]:
+    """
+    Считает MAE отдельно для начала/середины/конца пропуска
+    и по длине (short/medium/long всего пропуска).
+    """
+    gap_len = gap_end - gap_start
+    gt_gap = ground_truth.iloc[gap_start:gap_end].values
+    pr_gap = predicted.iloc[gap_start:gap_end].values
+
+    valid = ~np.isnan(pr_gap)
+    if valid.sum() == 0:
+        return {"overall": None, "short": None, "medium": None, "long": None}
+
+    overall_mae = float(np.mean(np.abs(gt_gap[valid] - pr_gap[valid])))
+
+    cat_mae: Dict[str, float] = {"overall": overall_mae}
+    for cat, (lo, hi) in GAP_CATEGORIES.items():
+        if lo <= gap_len < hi:
+            cat_mae[cat] = overall_mae
+        else:
+            cat_mae[cat] = None  
+    third = max(1, gap_len // 3)
+    segments = {
+        "start_third":  (0,           third),
+        "middle_third": (third,       2 * third),
+        "end_third": (2 * third,   gap_len),
+    }
+    for seg_name, (s, e) in segments.items():
+        seg_gt = gt_gap[s:e]
+        seg_pr = pr_gap[s:e]
+        seg_v  = ~np.isnan(seg_pr)
+        cat_mae[seg_name] = (
+            float(np.mean(np.abs(seg_gt[seg_v] - seg_pr[seg_v])))
+            if seg_v.sum() > 0 else None
+        )
+
+    return cat_mae
+
+
+def evaluate_imputation(
+    df: pd.DataFrame,
+    model: Any,
+    feature_cols: List[str],
+    gap_lengths: List[int] = (30, 120, 300),
+    seed: int = 42,
+) -> Dict[str, Any]:
+    """
+    Для каждой длины из gap_lengths:
+      1. Делаем синтетический пропуск
+      2. Заполняем моделью
+      3. Считаем MAE
+
+    Возвращает словарь:
+    {
+      "by_length": {
+          30:  {"overall": 123.4, "start_third": ..., ...},
+          120: {...},
+          300: {...},
+      },
+      "summary": {"short": 123.4, "medium": 456.7, "long": 789.0}
+    }
+    """
+    by_length: Dict[int, Dict] = {}
+
+    for gap_len in gap_lengths:
+        try:
+            df_syn, start, end = _make_synthetic_gap(df, gap_length_min=gap_len, seed=seed)
+        except ValueError as e:
+            by_length[gap_len] = {"error": str(e)}
+            continue
+
+        ground_truth = df["value"].copy()   
+        filled       = _fill_gaps(df_syn, model, feature_cols)
+
+        metrics = _mae_by_category(ground_truth, filled, start, end)
+        by_length[gap_len] = metrics
+
+    summary: Dict[str, float] = {}
+    for cat, (lo, hi) in GAP_CATEGORIES.items():
+        vals = [
+            m["overall"]
+            for gl, m in by_length.items()
+            if "overall" in m and m["overall"] is not None and lo <= gl < hi
+        ]
+        summary[cat] = float(np.mean(vals)) if vals else None
+
+    return {"by_length": by_length, "summary": summary}
+
+
 
 def run_imputation(df: pd.DataFrame, model_name: str = "lightgbm") -> Dict[str, Any]:
     """
-    Заполняет пропуски с помощью обученной модели LightGBM
+    1. Загружает модель
+    2. Заполняет реальные пропуски в df
+    3. Оценивает качество на синтетических пропусках (30 / 120 / 300 мин)
+    4. Возвращает filled_values + метрики по ключам
     """
-    # Пути к файлам модели
-    base_path = "models/imputation"
-    model_pkl_path = f"{base_path}/lightgbm_model.pkl"
-    model_txt_path = f"{base_path}/lgb_model.txt"
-    features_path = f"{base_path}/feature_cols.pkl"
-    
-    # Загружаем список фичей
-    if os.path.exists(features_path):
-        with open(features_path, 'rb') as f:
-            feature_cols = pickle.load(f)
-        print(f"Загружены фичи из файла ({len(feature_cols)})")
-    else:
-        raise FileNotFoundError(f"Feature file not found: {features_path}")
-    
-    # Загружаем модель
-    try:
-        if os.path.exists(model_pkl_path):
-            with open(model_pkl_path, 'rb') as f:
-                model = pickle.load(f)
-            print(f"Модель загружена из pkl")
-        elif os.path.exists(model_txt_path):
-            model = lgb.Booster(model_file=model_txt_path)
-            print(f"Модель загружена из txt")
-        else:
-            raise FileNotFoundError(f"Model not found")
-    except Exception as e:
-        raise FileNotFoundError(f"Model load error: {e}")
-    
-    # Копируем данные
-    df_work = df.copy()
-    filled_values = df_work['value'].copy()
-    
-    # Проверяем наличие всех фичей
-    missing_feats = [f for f in feature_cols if f not in df_work.columns]
-    if missing_feats:
-        print(f"Создаём недостающие фичи: {missing_feats}")
-        for feat in missing_feats:
-            df_work[feat] = 0
-    
-    # Находим пропуски
-    gap_indices = [i for i, is_gap in enumerate(df_work['is_gap']) if is_gap]
-    print(f"Найдено пропусков: {len(gap_indices)}")
-    
-    if not gap_indices:
-        return {
-            "filled_values": filled_values.tolist(),
-            "mae": 0.0,
-            "model_metrics": {model_name: 0.0}
-        }
-    
-    # Заполняем пропуски последовательно
-    for idx in gap_indices:
-        # Собираем фичи для этого индекса
-        features = []
-        valid = True
-        
-        for col in feature_cols:
-            if col not in df_work.columns:
-                valid = False
-                break
-            val = df_work.loc[idx, col]
-            if pd.isna(val):
-                valid = False
-                break
-            features.append(float(val))
-        
-        if valid and len(features) == len(feature_cols):
-            X_pred = np.array([features])
-            pred = float(model.predict(X_pred)[0])
-            fill_val = pred
-        else:
-            # Fallback: последнее известное значение
-            prev_valid = filled_values[:idx].dropna()
-            if len(prev_valid) > 0:
-                fill_val = prev_valid.iloc[-1]
-            else:
-                next_valid = filled_values[idx+1:].dropna()
-                fill_val = next_valid.iloc[0] if len(next_valid) > 0 else df_work['value'].mean()
-        
-        filled_values.iloc[idx] = fill_val
-        df_work.loc[idx, 'value'] = fill_val
-    
-    # Считаем MAE на оригинальных данных
-    mask_non_gap = ~df['is_gap'].astype(bool)
-    original = df['value'][mask_non_gap]
-    filled = filled_values[mask_non_gap]
-    mask_valid = ~original.isna() & ~filled.isna()
+    model, feature_cols = _load_model_and_features(model_name)
 
+    filled_values = _fill_gaps(df, model, feature_cols)
 
+    metrics = evaluate_imputation(
+        df,
+        model,
+        feature_cols,
+        gap_lengths=[30, 120, 300],
+    )
 
-    if mask_valid.sum() > 0:
-        mae = np.mean(np.abs(original[mask_valid] - filled[mask_valid]))
-    else:
-        mae = 0.0
-    
+    overall_maes = [
+        m["overall"]
+        for m in metrics["by_length"].values()
+        if isinstance(m, dict) and m.get("overall") is not None
+    ]
+    mae_overall = float(np.mean(overall_maes)) if overall_maes else 0.0
+
     return {
-        "filled_values": filled_values.tolist(),
-        "mae": 356,
-        "model_metrics": {model_name: 10 ** 10}
+        "filled_values":  filled_values.tolist(),
+        "mae":            mae_overall,
+        "metrics_by_length": {
+            str(k): v for k, v in metrics["by_length"].items()
+        },
+        "metrics_summary": metrics["summary"],
+        "model_metrics": {
+            model_name: mae_overall,
+        },
     }

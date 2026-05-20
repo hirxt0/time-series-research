@@ -10,7 +10,7 @@ def run_anomaly(df: pd.DataFrame, model_name: str = "zscore") -> Dict[str, Any]:
     больше чем на THRESHOLD стандартных отклонений.
     """
     THRESHOLD = 3.0
-    WINDOW = 60  # минут
+    WINDOW = 60 
     
     df = df.copy()
     expected = ['seconds', 'value', 'quality', 'accuracy']
@@ -51,7 +51,6 @@ def run_anomaly(df: pd.DataFrame, model_name: str = "zscore") -> Dict[str, Any]:
     anomaly_mask = z > THRESHOLD
     anomaly_timestamps = data_valid.loc[anomaly_mask, 'seconds'].tolist()
  
-    # Словарь скоров для всех точек
     full_scores = pd.Series(np.nan, index=data.index)
     full_scores[valid_mask] = norm_scores.values
     scores_dict = dict(zip(data['seconds'], full_scores))

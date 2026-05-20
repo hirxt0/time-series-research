@@ -14,15 +14,14 @@ import pandas as pd
 import numpy as np
 from typing import Tuple
 
-# ─── Константы ────────────────────────────────────────────────
-STEP_SEC      = 3        # исходный шаг в секундах
-PTS_MIN       = 20       # точек на минуту (60 / 3)
-PTS_HOUR      = 1200     # точек на час
-PTS_DAY       = 28800    # точек на сутки
-TARGET_STEP   = 60       # целевой шаг после ресемплинга (секунды = 1 мин)
-DIFF_THRESH   = 50_000   # порог производной для артефактов
-INTERP_LIMIT  = 20       # макс. точек для линейной интерполяции (≈1 мин)
-TREND_WINDOW  = PTS_HOUR * 24  # окно для скользящего тренда (сутки)
+STEP_SEC = 3       
+PTS_MIN = 20     
+PTS_HOUR = 1200    
+PTS_DAY = 28800   
+TARGET_STEP = 60      
+DIFF_THRESH = 50_000   
+INTERP_LIMIT = 20      
+TREND_WINDOW = PTS_HOUR * 24  
 
 
 
@@ -44,16 +43,12 @@ def run_eda(df_raw: pd.DataFrame) -> Tuple[pd.DataFrame, dict]:
     df = _normalize_columns(df_raw)
     df = _validate_input(df)
 
-    # 1. Приводим к регулярной сетке (1 мин), NaN там где данных нет
     df_min, gap_info = _resample_to_minutes(df)
 
-    # 2. Feature engineering
     df_min = _feature_engineering(df_min)
 
-    # 3. Лаговые признаки (только на не-NaN участках)
     df_min = _lag_features(df_min)
 
-    # 4. Собираем метаданные для UI
     meta = _build_meta(df_raw, df_min, gap_info)
 
     return df_min, meta
@@ -93,32 +88,26 @@ def _resample_to_minutes(df: pd.DataFrame) -> Tuple[pd.DataFrame, dict]:
     t_min = int(df['seconds'].min())
     t_max = int(df['seconds'].max())
 
-    # Регулярная сетка: шаг 60 сек
     grid = np.arange(t_min, t_max + TARGET_STEP, TARGET_STEP)
 
-    # Назначаем каждой исходной точке минутное «ведро»
     df = df.copy()
     df['minute_bucket'] = (
         ((df['seconds'] - t_min) // TARGET_STEP).astype(int) * TARGET_STEP + t_min
     )
 
-    # Агрегируем: среднее value + усреднённые флаги качества
     agg = df.groupby('minute_bucket').agg(
         value    =('value',    'mean'),
         quality  =('quality',  'mean'),
         accuracy =('accuracy', 'mean'),
-        n_pts    =('value',    'count'),   # сколько точек попало в минуту
+        n_pts    =('value',    'count'),   
     )
 
-    # Присоединяем к полной сетке — там где нет данных будет NaN
     df_min = pd.DataFrame({'seconds': grid}).set_index('seconds')
     df_min = df_min.join(agg, how='left')
 
-    # n_pts == 0 означает полный пропуск минуты
     gap_mask = df_min['n_pts'].isna() | (df_min['n_pts'] == 0)
     df_min.loc[gap_mask, 'value'] = np.nan
 
-    # Находим непрерывные блоки пропусков
     gap_info = _find_gap_blocks(gap_mask.values, grid)
 
     df_min.reset_index(inplace=True)
@@ -148,7 +137,7 @@ def _find_gap_blocks(gap_mask: np.ndarray, seconds: np.ndarray) -> dict:
                 'length_min': length,
             })
 
-    if in_gap:  # пропуск до конца файла
+    if in_gap:  
         length = len(gap_mask) - start_i
         blocks.append({
             'start_sec': int(seconds[start_i]),
@@ -174,19 +163,16 @@ def _feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
     через реальные минутные индексы (0, 1, 2, ...) а не секунды.
     """
     df = df.copy()
-    pts = df.index  # минутный индекс 0..N
-
-    df['minute']      = pts % 60
-    df['hour']        = (pts // 60) % 24
-    df['day']         = pts // 1440
+    pts = df.index 
+    df['minute'] = pts % 60
+    df['hour'] = (pts // 60) % 24
+    df['day'] = pts // 1440
     df['day_of_week'] = (df['day'] + 2) % 7
     df['week_number'] = (df['day'] // 7) + 1
     df['day_of_year'] = df['day'] % 365
     df['month_number'] = _days_to_month(df['day'].values)
-
-    # Синусы/косинусы
-    df['sin_hour']      = np.sin(2 * np.pi * df['hour'] / 24)
-    df['cos_hour']      = np.cos(2 * np.pi * df['hour'] / 24)
+    df['sin_hour'] = np.sin(2 * np.pi * df['hour'] / 24)
+    df['cos_hour'] = np.cos(2 * np.pi * df['hour'] / 24)
     df['sin_dayofyear'] = np.sin(2 * np.pi * df['day_of_year'] / 365)
     df['cos_dayofyear'] = np.cos(2 * np.pi * df['day_of_year'] / 365)
 
@@ -208,7 +194,6 @@ def _lag_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     v = df['value']
     
-    # Временно заполняем NaN для расчёта лагов
     v_temp = v.ffill().bfill()
     
     df['lag_mean_30min'] = v_temp.rolling(30, min_periods=1).mean().shift(1)
@@ -240,20 +225,20 @@ def _build_meta(
     gap_min   = gap_info['total_gap_min']
 
     return {
-        'raw_rows':        len(df_raw),
-        'total_minutes':   total_min,
-        'gap_count':       gap_info['count'],
-        'gap_total_min':   gap_min,
-        'gap_pct':         round(100 * gap_min / total_min, 4) if total_min else 0,
-        'gap_max_min':     gap_info['max_gap_min'],
+        'raw_rows': len(df_raw),
+        'total_minutes': total_min,
+        'gap_count': gap_info['count'],
+        'gap_total_min': gap_min,
+        'gap_pct': round(100 * gap_min / total_min, 4) if total_min else 0,
+        'gap_max_min': gap_info['max_gap_min'],
         'gap_distribution': gap_info['length_distribution'],
-        'gap_blocks':      gap_info['blocks'],
-        'gap_lengths':     [b['length_min'] for b in gap_info['blocks']],  # ← ДОБАВИТЬ
-        'artifact_count':  0,
-        'artifact_pct':    0,
-        'value_mean':      round(float(df_min['value'].mean(skipna=True)), 2),
-        'value_std':       round(float(df_min['value'].std(skipna=True)), 2),
-        'value_min':       round(float(df_min['value'].min(skipna=True)), 2),
-        'value_max':       round(float(df_min['value'].max(skipna=True)), 2),
-        'step_sec':        TARGET_STEP,
+        'gap_blocks': gap_info['blocks'],
+        'gap_lengths': [b['length_min'] for b in gap_info['blocks']],  # ← ДОБАВИТЬ
+        'artifact_count': 0,
+        'artifact_pct': 0,
+        'value_mean': round(float(df_min['value'].mean(skipna=True)), 2),
+        'value_std': round(float(df_min['value'].std(skipna=True)), 2),
+        'value_min': round(float(df_min['value'].min(skipna=True)), 2),
+        'value_max': round(float(df_min['value'].max(skipna=True)), 2),
+        'step_sec': TARGET_STEP,
     }
