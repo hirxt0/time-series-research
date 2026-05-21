@@ -294,7 +294,7 @@
       <div class="stat-key" style="margin-bottom:4px">Модель импутации</div>
       <select id="sel-impute">
         <option value="lightgbm" selected>LightGBM</option>
-        <option value="catboost">CatBoost</option>
+        <option value="timesfm">TimesFM</option>
       </select>
       <div class="stat-key" style="margin-top:10px; margin-bottom:4px">Детекция аномалий</div>
       <select id="sel-anomaly">
@@ -338,7 +338,7 @@
         <div class="chart-wrap" style="height:180px; width:100%">
           <canvas id="chart-zoom" role="img" aria-label="Zoom на заполненный пропуск"></canvas>
         </div>
-        <div style="font-size:10px; color:var(--text3)">Зелёная пунктирная линия — предсказание LightGBM · жёлтая зона — окно пропуска</div>
+        <div style="font-size:10px; color:var(--text3)">Зелёная пунктирная линия — предсказание выбранной модели · жёлтая зона — окно пропуска</div>
       </div>
     </div>
  
@@ -402,7 +402,7 @@
 // ═══════════════════════════════════════════════
 let parsedData = null;
 let charts = {};
-const API_BASE = 'http://localhost:8000';   
+const API_BASE = 'http://localhost:8080'; 
  
 // ═══════════════════════════════════════════════
 //  FILE UPLOAD
@@ -714,7 +714,6 @@ function renderModelChart(maes) {
   });
 }
  
-// 5. Zoom chart
 function renderZoomChart(rows, gapIdxArr, filled) {
   destroyChart('zoom');
   if (!gapIdxArr.length || !filled) return;
@@ -731,6 +730,8 @@ function renderZoomChart(rows, gapIdxArr, filled) {
     orig.push(gapSet.has(i) ? null : rows[i].value);
     imp.push(gapSet.has(i) ? filled[i] : null);
   }
+
+  const modelName = document.getElementById('sel-impute').value.toUpperCase();
  
   const ctx = document.getElementById('chart-zoom').getContext('2d');
   charts['zoom'] = new Chart(ctx, {
@@ -738,8 +739,8 @@ function renderZoomChart(rows, gapIdxArr, filled) {
     data: {
       labels,
       datasets: [
-        { label: 'оригинал',           data: orig, borderColor: '#58a6ff', borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false },
-        { label: 'импутация LightGBM', data: imp,  borderColor: '#3fb950', borderWidth: 2,   pointRadius: 2, tension: 0.3, fill: false, borderDash: [5,3] },
+        { label: 'оригинал',                      data: orig, borderColor: '#58a6ff', borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false },
+        { label: `импутация ${modelName}`, data: imp,  borderColor: '#3fb950', borderWidth: 2,   pointRadius: 2, tension: 0.3, fill: false, borderDash: [5,3] },
       ]
     },
     options: {
@@ -953,7 +954,6 @@ function renderMainChartFromResult(r) {
   });
 }
 
-// Рендер Zoom графика из результата API
 function renderZoomChartFromResult(r) {
   destroyChart('zoom');
   
@@ -978,7 +978,6 @@ function renderZoomChartFromResult(r) {
   for (let i = from; i <= to; i++) {
     labels.push(i);
     
-    // Единый ряд
     const isGap = gapSet.has(i);
     const originalVal = values[i];
     const filledVal = filled[i];
@@ -991,13 +990,11 @@ function renderZoomChartFromResult(r) {
     }
     unified.push(unifiedVal);
     
-    // Зона пропуска для фона
     gapZone.push(isGap);
   }
   
   const ctx = document.getElementById('chart-zoom').getContext('2d');
   
-  // Создаём градиент для фона пропуска
   const gapBackground = [];
   for (let i = 0; i < labels.length; i++) {
     if (gapZone[i]) {
@@ -1053,12 +1050,11 @@ function renderZoomChartFromResult(r) {
     }
   });
   
-  // Добавляем подсветку зоны пропуска (через canvas напрямую)
   setTimeout(() => {
     const canvas = document.getElementById('chart-zoom');
     const chartArea = charts['zoom'].chartArea;
     if (chartArea) {
-      // Можно добавить дополнительную подсветку если нужно
+
     }
   }, 100);
 }

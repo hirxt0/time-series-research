@@ -17,6 +17,87 @@ GAP_CATEGORIES = {
     "long":   (120, 99999), 
 }
 
+# ─── TimesFM helpers ──────────────────────────────────────────────────────────
+
+def _load_timesfm():
+    """Lazy-load TimesFM v1.3.x модель через hparams/checkpoint API."""
+    import timesfm
+    for backend in ["gpu", "cpu"]:
+        try:
+            tfm = timesfm.TimesFm(
+                hparams=timesfm.TimesFmHparams(
+                    backend=backend,
+                    per_core_batch_size=1,
+                    horizon_len=128,
+                    context_len=512,
+                ),
+                checkpoint=timesfm.TimesFmCheckpoint(
+                    huggingface_repo_id="google/timesfm-1.0-200m-pytorch",
+                ),
+            )
+            return tfm
+        except Exception:
+            if backend == "cpu":
+                raise
+            continue
+
+
+def _fill_gaps_timesfm(
+    series: np.ndarray,
+    context_len: int = 1440 * 2,
+    max_gap: int = 300,
+    step: int = 20,
+) -> np.ndarray:
+    """
+    Rolling forecast заполнение пропусков через TimesFM.
+    Аналог fill_gaps_timesfm из inputation.py, но встроен прямо сюда
+    чтобы не тянуть зависимость от отдельного модуля.
+    """
+    model = _load_timesfm()
+    s = series.astype(float).copy()
+    i = 0
+
+    while i < len(s):
+        if not np.isnan(s[i]):
+            i += 1
+            continue
+
+        gap_start = i
+        while i < len(s) and np.isnan(s[i]):
+            i += 1
+        gap_end = i
+        gap_len = gap_end - gap_start
+
+        if gap_len > max_gap:
+            # Слишком длинный пропуск — заполняем медианой контекста
+            ctx = s[max(0, gap_start - context_len):gap_start]
+            fallback = float(np.nanmedian(ctx)) if not np.all(np.isnan(ctx)) else 0.0
+            s[gap_start:gap_end] = fallback
+            continue
+
+        pos = gap_start
+        while pos < gap_end:
+            chunk = min(step, gap_end - pos)
+            ctx_start = max(0, pos - context_len)
+            context = s[ctx_start:pos].copy()
+
+            if len(context) < 10:
+                pos += chunk
+                continue
+
+            ctx_median = np.nanmedian(context)
+            context = np.where(np.isnan(context), ctx_median, context)
+
+            point_forecast, _ = model.forecast(
+                inputs=[context],
+                freq=[0],
+            )
+            pred = np.array(point_forecast[0])
+            s[pos:pos + chunk] = pred[:chunk]
+            pos += chunk
+
+    return s
+
 
 
 def _load_model_and_features(model_name: str) -> Tuple[Any, List[str]]:
@@ -40,6 +121,16 @@ def _load_model_and_features(model_name: str) -> Tuple[Any, List[str]]:
 
     return model, feature_cols
 
+
+
+def _fill_gaps_timesfm_df(df: pd.DataFrame) -> pd.Series:
+    """
+    Заполняет пропуски через TimesFM.
+    Принимает тот же DataFrame что и _fill_gaps, возвращает Series filled values.
+    """
+    series = df["value"].values.copy()
+    filled = _fill_gaps_timesfm(series)
+    return pd.Series(filled, index=df.index, name="value")
 
 
 def _fill_gaps(df: pd.DataFrame, model: Any, feature_cols: List[str]) -> pd.Series:
@@ -214,21 +305,22 @@ def evaluate_imputation(
 
 def run_imputation(df: pd.DataFrame, model_name: str = "lightgbm") -> Dict[str, Any]:
     """
-    1. Загружает модель
-    2. Заполняет реальные пропуски в df
-    3. Оценивает качество на синтетических пропусках (30 / 120 / 300 мин)
-    4. Возвращает filled_values + метрики по ключам
+    1. Заполняет реальные пропуски в df выбранной моделью (lightgbm / timesfm)
+    2. Оценивает качество на синтетических пропусках (30 / 120 / 300 мин)
+    3. Возвращает filled_values + метрики
+
+    model_name: "lightgbm" | "timesfm"
     """
-    model, feature_cols = _load_model_and_features(model_name)
+    use_timesfm = model_name.lower() == "timesfm"
 
-    filled_values = _fill_gaps(df, model, feature_cols)
-
-    metrics = evaluate_imputation(
-        df,
-        model,
-        feature_cols,
-        gap_lengths=[30, 120, 300],
-    )
+    if use_timesfm:
+        filled_values = _fill_gaps_timesfm_df(df)
+        # Для оценки TimesFM используем упрощённую схему через синтетические пропуски
+        metrics = _evaluate_timesfm(df, gap_lengths=[30, 120, 300])
+    else:
+        model, feature_cols = _load_model_and_features(model_name)
+        filled_values = _fill_gaps(df, model, feature_cols)
+        metrics = evaluate_imputation(df, model, feature_cols, gap_lengths=[30, 120, 300])
 
     overall_maes = [
         m["overall"]
@@ -248,3 +340,39 @@ def run_imputation(df: pd.DataFrame, model_name: str = "lightgbm") -> Dict[str, 
             model_name: mae_overall,
         },
     }
+
+
+def _evaluate_timesfm(
+    df: pd.DataFrame,
+    gap_lengths: List[int] = (30, 120, 300),
+    seed: int = 42,
+) -> Dict[str, Any]:
+    """
+    Оценка качества TimesFM на синтетических пропусках.
+    Та же логика что evaluate_imputation, но использует _fill_gaps_timesfm вместо LightGBM.
+    """
+    by_length: Dict[int, Dict] = {}
+
+    for gap_len in gap_lengths:
+        try:
+            df_syn, start, end = _make_synthetic_gap(df, gap_length_min=gap_len, seed=seed)
+        except ValueError as e:
+            by_length[gap_len] = {"error": str(e)}
+            continue
+
+        ground_truth = df["value"].copy()
+        filled = _fill_gaps_timesfm_df(df_syn)
+
+        metrics = _mae_by_category(ground_truth, filled, start, end)
+        by_length[gap_len] = metrics
+
+    summary: Dict[str, float] = {}
+    for cat, (lo, hi) in GAP_CATEGORIES.items():
+        vals = [
+            m["overall"]
+            for gl, m in by_length.items()
+            if "overall" in m and m["overall"] is not None and lo <= gl < hi
+        ]
+        summary[cat] = float(np.mean(vals)) if vals else None
+
+    return {"by_length": by_length, "summary": summary}
