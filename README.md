@@ -1,3 +1,33 @@
+## Установка и запуск
+
+### Зависимости
+
+```txt
+fastapi
+uvicorn[standard]
+python-multipart
+pandas
+numpy
+scikit-learn
+lightgbm
+timesfm==1.3.0
+```
+
+Установить все зависимости:
+
+```bash
+pip install fastapi uvicorn[standard] python-multipart pandas numpy scikit-learn lightgbm timesfm==1.3.0
+```
+
+### Запуск
+
+```bash
+cd GeoMagAnalyst
+uvicorn main:app --reload --port 8080
+```
+
+Открыть в браузере: [http://localhost:8080](http://localhost:8080)
+
 # 1) Exploratory Data Analysis (EDA)
 
 Перед построением прогнозных моделей был проведён исследовательский анализ данных для выявления структуры, закономерностей и артефактов во временных рядах вариаций геомагнитного поля.
