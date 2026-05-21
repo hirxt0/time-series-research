@@ -1,67 +1,62 @@
 import numpy as np
 import pandas as pd
+from sklearn.ensemble import IsolationForest
 from typing import Dict, Any
- 
- 
-def run_anomaly(df: pd.DataFrame, model_name: str = "zscore") -> Dict[str, Any]:
-    """
-    Детекция аномалий по rolling z-score.
-    Точка аномальна если отклоняется от скользящего среднего (окно 60 мин)
-    больше чем на THRESHOLD стандартных отклонений.
-    """
-    THRESHOLD = 3.0
-    WINDOW = 60 
-    
-    df = df.copy()
-    expected = ['seconds', 'value', 'quality', 'accuracy']
 
+def run_anomaly(df: pd.DataFrame, model_name: str = "iforest") -> Dict[str, Any]:
+    """
+    Принимает исходный DataFrame с шагом 3 секунды. Обучает Isolation Forest на валидных (не NaN) точках,
+    рассчитывает аномальные скоры, инвертирует и нормализует их в диапазон [0, 1], а затем возвращает словарь
+    со списком индексов аномалий, их количеством, порогом отсечения, долей покрытия и словарем скоров, 
+    где ключами являются строковые представления секунд (str(int(seconds))), а значениями - нормализованные скоры аномалий (float).
+    """
+    expected = ['seconds', 'value', 'quality', 'accuracy']
     if list(df.columns[:4]) != expected:
         rename = {old: new for old, new in zip(df.columns[:4], expected)}
         df.rename(columns=rename, inplace=True)
- 
-    if 'seconds' not in df.columns:
-        raise KeyError("DataFrame должен содержать колонку 'seconds'")
- 
+        
     data = df[['seconds', 'value']].copy()
     valid_mask = data['value'].notna()
     data_valid = data[valid_mask].copy()
- 
-    if len(data_valid) < WINDOW:
+    
+    if len(data_valid) < 100:
         return {
-            "timestamps": [],
+            "indices": [],
             "count": 0,
-            "threshold": THRESHOLD,
+            "threshold": 0.5,
             "coverage": 0.0,
-            "scores": {},
-            "model": model_name
+            "scores": {}
         }
- 
-    v = data_valid['value']
- 
-    rolling_mean = v.rolling(window=WINDOW, min_periods=10, center=True).mean()
-    rolling_std  = v.rolling(window=WINDOW, min_periods=10, center=True).std()
- 
-    # z-score: насколько точка далека от локального среднего
-    z = ((v - rolling_mean) / (rolling_std + 1e-9)).abs()
- 
-    # Нормализуем скор в [0, 1] для отображения
-    z_max = z.max() if z.max() > 0 else 1.0
-    norm_scores = (z / z_max).fillna(0.0)
- 
-    anomaly_mask = z > THRESHOLD
+        
+    X = data_valid[['value']].copy()
+    X['delta'] = X['value'].diff().abs().fillna(0)
+    
+    model = IsolationForest(
+        n_estimators=100,
+        contamination=0.02,
+        max_samples='auto',
+        random_state=42,
+        n_jobs=-1
+    )
+    
+    predictions = model.fit_predict(X)
+    raw_scores = model.decision_function(X)
+    
+    s_min, s_max = raw_scores.min(), raw_scores.max()
+    norm_scores_valid = (s_max - raw_scores) / (s_max - s_min + 1e-9)
+    
+    anomaly_mask = predictions == -1
     anomaly_timestamps = data_valid.loc[anomaly_mask, 'seconds'].tolist()
- 
-    full_scores = pd.Series(np.nan, index=data.index)
-    full_scores[valid_mask] = norm_scores.values
-    scores_dict = dict(zip(data['seconds'], full_scores))
- 
-    coverage = len(anomaly_timestamps) / len(data_valid) if len(data_valid) > 0 else 0.0
- 
+    
+    scores_dict = {str(int(k)): float(v) for k, v in zip(data_valid['seconds'], norm_scores_valid)}
+    
+    anomaly_indices = np.where(df['seconds'].isin(anomaly_timestamps))[0].tolist()
+    coverage = len(anomaly_timestamps) / len(df) if len(df) > 0 else 0.0
+
     return {
-        "timestamps": anomaly_timestamps,
-        "count": len(anomaly_timestamps),
-        "threshold": THRESHOLD,
+        "indices": anomaly_indices,
+        "count": len(anomaly_indices),
+        "threshold": float(np.percentile(norm_scores_valid, 98)) if len(norm_scores_valid) > 0 else 0.5,
         "coverage": round(float(coverage), 4),
-        "scores": scores_dict,
-        "model": model_name
+        "scores": scores_dict
     }
