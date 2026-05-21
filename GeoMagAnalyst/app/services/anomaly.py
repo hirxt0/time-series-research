@@ -54,7 +54,7 @@ def run_anomaly(df: pd.DataFrame, model_name: str = "iforest") -> Dict[str, Any]
     coverage = len(anomaly_timestamps) / len(df) if len(df) > 0 else 0.0
 
     return {
-        "indices": anomaly_indices,
+        "timestamps": anomaly_indices,
         "count": len(anomaly_indices),
         "threshold": float(np.percentile(norm_scores_valid, 98)) if len(norm_scores_valid) > 0 else 0.5,
         "coverage": round(float(coverage), 4),

@@ -17,10 +17,8 @@ GAP_CATEGORIES = {
     "long":   (120, 99999), 
 }
 
-# ─── TimesFM helpers ──────────────────────────────────────────────────────────
 
 def _load_timesfm():
-    """Lazy-load TimesFM v1.3.x модель через hparams/checkpoint API."""
     import timesfm
     for backend in ["gpu", "cpu"]:
         try:
@@ -48,11 +46,7 @@ def _fill_gaps_timesfm(
     max_gap: int = 300,
     step: int = 20,
 ) -> np.ndarray:
-    """
-    Rolling forecast заполнение пропусков через TimesFM.
-    Аналог fill_gaps_timesfm из inputation.py, но встроен прямо сюда
-    чтобы не тянуть зависимость от отдельного модуля.
-    """
+
     model = _load_timesfm()
     s = series.astype(float).copy()
     i = 0
@@ -69,7 +63,6 @@ def _fill_gaps_timesfm(
         gap_len = gap_end - gap_start
 
         if gap_len > max_gap:
-            # Слишком длинный пропуск — заполняем медианой контекста
             ctx = s[max(0, gap_start - context_len):gap_start]
             fallback = float(np.nanmedian(ctx)) if not np.all(np.isnan(ctx)) else 0.0
             s[gap_start:gap_end] = fallback
@@ -124,20 +117,14 @@ def _load_model_and_features(model_name: str) -> Tuple[Any, List[str]]:
 
 
 def _fill_gaps_timesfm_df(df: pd.DataFrame) -> pd.Series:
-    """
-    Заполняет пропуски через TimesFM.
-    Принимает тот же DataFrame что и _fill_gaps, возвращает Series filled values.
-    """
+
     series = df["value"].values.copy()
     filled = _fill_gaps_timesfm(series)
     return pd.Series(filled, index=df.index, name="value")
 
 
 def _fill_gaps(df: pd.DataFrame, model: Any, feature_cols: List[str]) -> pd.Series:
-    """
-    Заполняет пропуски последовательно, обновляя значение в df после
-    каждого предсказания чтобы следующий шаг видел уже заполненные данные.
-    """
+
     df_work = df.copy()
     filled = df_work["value"].copy()
     gap_indices  = df_work.index[df_work["is_gap"].astype(bool)].tolist()
@@ -175,12 +162,7 @@ def _make_synthetic_gap(
     gap_length_min: int = 120,
     seed: int = 42,
 ) -> Tuple[pd.DataFrame, int, int]:
-    """
-    Вырезает один непрерывный кусок известных данных длиной gap_length_min,
-    помечает его как пропуск. Возвращает изменённый df и индексы start/end.
 
-    Выбираем участок подальше от краёв чтобы лаги были доступны.
-    """
     rng = np.random.default_rng(seed)
     known_idx  = df.index[~df["is_gap"].astype(bool)].tolist()
 
@@ -214,10 +196,7 @@ def _mae_by_category(
     gap_start: int,
     gap_end: int,
 ) -> Dict[str, float]:
-    """
-    Считает MAE отдельно для начала/середины/конца пропуска
-    и по длине (short/medium/long всего пропуска).
-    """
+
     gap_len = gap_end - gap_start
     gt_gap = ground_truth.iloc[gap_start:gap_end].values
     pr_gap = predicted.iloc[gap_start:gap_end].values
@@ -304,18 +283,11 @@ def evaluate_imputation(
 
 
 def run_imputation(df: pd.DataFrame, model_name: str = "lightgbm") -> Dict[str, Any]:
-    """
-    1. Заполняет реальные пропуски в df выбранной моделью (lightgbm / timesfm)
-    2. Оценивает качество на синтетических пропусках (30 / 120 / 300 мин)
-    3. Возвращает filled_values + метрики
 
-    model_name: "lightgbm" | "timesfm"
-    """
     use_timesfm = model_name.lower() == "timesfm"
 
     if use_timesfm:
         filled_values = _fill_gaps_timesfm_df(df)
-        # Для оценки TimesFM используем упрощённую схему через синтетические пропуски
         metrics = _evaluate_timesfm(df, gap_lengths=[30, 120, 300])
     else:
         model, feature_cols = _load_model_and_features(model_name)
