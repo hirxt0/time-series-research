@@ -8,7 +8,7 @@ def run_anomaly(df: pd.DataFrame, model_name: str = "iforest") -> Dict[str, Any]
     Принимает исходный DataFrame с шагом 3 секунды. Обучает Isolation Forest на валидных (не NaN) точках,
     рассчитывает аномальные скоры, инвертирует и нормализует их в диапазон [0, 1], а затем возвращает словарь
     со списком индексов аномалий, их количеством, порогом отсечения, долей покрытия и словарем скоров, 
-    где ключами являются строковые представления секунд (str(int(seconds))), а значениями - нормализованные скоры аномалий (float).
+    где ключами являются целочисленные представления секунд (int(seconds))
     """
     expected = ['seconds', 'value', 'quality', 'accuracy']
     if list(df.columns[:4]) != expected:
@@ -21,6 +21,7 @@ def run_anomaly(df: pd.DataFrame, model_name: str = "iforest") -> Dict[str, Any]
     
     if len(data_valid) < 100:
         return {
+            "timestamps": [],
             "indices": [],
             "count": 0,
             "threshold": 0.5,
@@ -33,7 +34,7 @@ def run_anomaly(df: pd.DataFrame, model_name: str = "iforest") -> Dict[str, Any]
     
     model = IsolationForest(
         n_estimators=100,
-        contamination=0.02,
+        contamination=0.0005,
         max_samples='auto',
         random_state=42,
         n_jobs=-1
@@ -46,17 +47,21 @@ def run_anomaly(df: pd.DataFrame, model_name: str = "iforest") -> Dict[str, Any]
     norm_scores_valid = (s_max - raw_scores) / (s_max - s_min + 1e-9)
     
     anomaly_mask = predictions == -1
-    anomaly_timestamps = data_valid.loc[anomaly_mask, 'seconds'].tolist()
     
-    scores_dict = {str(int(k)): float(v) for k, v in zip(data_valid['seconds'], norm_scores_valid)}
+    raw_seconds = data_valid.loc[anomaly_mask, 'seconds'].astype(int).values
+    minute_timestamps = [int((s // 60) * 60) for s in raw_seconds]
+    unique_minute_timestamps = list(set(minute_timestamps))
     
-    anomaly_indices = np.where(df['seconds'].isin(anomaly_timestamps))[0].tolist()
-    coverage = len(anomaly_timestamps) / len(df) if len(df) > 0 else 0.0
+    scores_dict = {int(k): float(v) for k, v in zip(data_valid['seconds'], norm_scores_valid)}
+    
+    anomaly_indices = np.where(df['seconds'].isin(raw_seconds))[0].tolist()
+    coverage = len(unique_minute_timestamps) / (len(df) / 20) if len(df) > 0 else 0.0
 
     return {
-        "timestamps": anomaly_indices,
-        "count": len(anomaly_indices),
-        "threshold": float(np.percentile(norm_scores_valid, 98)) if len(norm_scores_valid) > 0 else 0.5,
+        "timestamps": unique_minute_timestamps,
+        "indices": anomaly_indices,
+        "count": len(unique_minute_timestamps),
+        "threshold": float(np.percentile(norm_scores_valid, 99.95)) if len(norm_scores_valid) > 0 else 0.5,
         "coverage": round(float(coverage), 4),
         "scores": scores_dict
     }
