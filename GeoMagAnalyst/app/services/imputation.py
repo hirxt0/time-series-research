@@ -190,7 +190,7 @@ def _make_synthetic_gap(
     return df_syn, start, end
 
 
-def _mae_by_category(
+def _mape_by_category(
     ground_truth: pd.Series,
     predicted: pd.Series,
     gap_start: int,
@@ -201,34 +201,34 @@ def _mae_by_category(
     gt_gap = ground_truth.iloc[gap_start:gap_end].values
     pr_gap = predicted.iloc[gap_start:gap_end].values
 
-    valid = ~np.isnan(pr_gap)
+    valid = ~np.isnan(pr_gap) & (gt_gap != 0)
     if valid.sum() == 0:
         return {"overall": None, "short": None, "medium": None, "long": None}
 
-    overall_mae = float(np.mean(np.abs(gt_gap[valid] - pr_gap[valid])))
+    overall_mape = float(np.mean(np.abs((gt_gap[valid] - pr_gap[valid]) / gt_gap[valid])) * 100)
 
-    cat_mae: Dict[str, float] = {"overall": overall_mae}
+    cat_mape: Dict[str, float] = {"overall": overall_mape}
     for cat, (lo, hi) in GAP_CATEGORIES.items():
         if lo <= gap_len < hi:
-            cat_mae[cat] = overall_mae
+            cat_mape[cat] = overall_mape
         else:
-            cat_mae[cat] = None  
+            cat_mape[cat] = None
     third = max(1, gap_len // 3)
     segments = {
         "start_third":  (0,           third),
         "middle_third": (third,       2 * third),
-        "end_third": (2 * third,   gap_len),
+        "end_third":    (2 * third,   gap_len),
     }
     for seg_name, (s, e) in segments.items():
         seg_gt = gt_gap[s:e]
         seg_pr = pr_gap[s:e]
-        seg_v  = ~np.isnan(seg_pr)
-        cat_mae[seg_name] = (
-            float(np.mean(np.abs(seg_gt[seg_v] - seg_pr[seg_v])))
+        seg_v  = ~np.isnan(seg_pr) & (seg_gt != 0)
+        cat_mape[seg_name] = (
+            float(np.mean(np.abs((seg_gt[seg_v] - seg_pr[seg_v]) / seg_gt[seg_v])) * 100)
             if seg_v.sum() > 0 else None
         )
 
-    return cat_mae
+    return cat_mape
 
 
 def evaluate_imputation(
@@ -266,7 +266,7 @@ def evaluate_imputation(
         ground_truth = df["value"].copy()   
         filled       = _fill_gaps(df_syn, model, feature_cols)
 
-        metrics = _mae_by_category(ground_truth, filled, start, end)
+        metrics = _mape_by_category(ground_truth, filled, start, end)
         by_length[gap_len] = metrics
 
     summary: Dict[str, float] = {}
@@ -294,22 +294,22 @@ def run_imputation(df: pd.DataFrame, model_name: str = "lightgbm") -> Dict[str, 
         filled_values = _fill_gaps(df, model, feature_cols)
         metrics = evaluate_imputation(df, model, feature_cols, gap_lengths=[30, 120, 300])
 
-    overall_maes = [
+    overall_mapes = [
         m["overall"]
         for m in metrics["by_length"].values()
         if isinstance(m, dict) and m.get("overall") is not None
     ]
-    mae_overall = float(np.mean(overall_maes)) if overall_maes else 0.0
+    mape_overall = float(np.mean(overall_mapes)) if overall_mapes else 0.0
 
     return {
         "filled_values":  filled_values.tolist(),
-        "mae":            mae_overall,
+        "mape":           mape_overall,
         "metrics_by_length": {
             str(k): v for k, v in metrics["by_length"].items()
         },
         "metrics_summary": metrics["summary"],
         "model_metrics": {
-            model_name: mae_overall,
+            model_name: mape_overall,
         },
     }
 
@@ -335,7 +335,7 @@ def _evaluate_timesfm(
         ground_truth = df["value"].copy()
         filled = _fill_gaps_timesfm_df(df_syn)
 
-        metrics = _mae_by_category(ground_truth, filled, start, end)
+        metrics = _mape_by_category(ground_truth, filled, start, end)
         by_length[gap_len] = metrics
 
     summary: Dict[str, float] = {}

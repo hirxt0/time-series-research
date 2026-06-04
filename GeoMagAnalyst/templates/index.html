@@ -303,7 +303,7 @@
       <div class="stat-row"><span class="stat-key">Шаг (мин)</span><span class="stat-val" id="eda-step">—</span></div>
       <div class="stat-row"><span class="stat-key">Пропуски</span><span class="stat-val v-amber" id="eda-gaps">—</span></div>
       <div class="stat-row"><span class="stat-key">Аномалии</span><span class="stat-val v-red" id="eda-anomalies">—</span></div>
-      <div class="stat-row"><span class="stat-key">MAE (импутация)</span><span class="stat-val v-green" id="eda-mae">—</span></div>
+      <div class="stat-row"><span class="stat-key">MAPE (импутация)</span><span class="stat-val v-green" id="eda-mae">—</span></div>
     </div>
  
     <div class="card">
@@ -390,7 +390,7 @@
         </div>
         <div class="metrics" style="grid-template-columns: 1fr 1fr;">
           <div class="metric"><div class="metric-label">пропусков</div><div class="metric-val v-amber" id="m-gaps">—</div></div>
-          <div class="metric"><div class="metric-label">MAE</div><div class="metric-val v-green" id="m-mae">—</div></div>
+          <div class="metric"><div class="metric-label">MAPE</div><div class="metric-val v-green" id="m-mae">—</div></div>
         </div>
         <div class="tabs">
           <button class="tab active" data-tab="dist">Распределение длин</button>
@@ -576,12 +576,12 @@ function applyResult(r) {
   document.getElementById('dl-btn').style.display = 'block';
   // Обновляем метрики
   document.getElementById('eda-anomalies').textContent = r.anomalyCount || 0;
-  document.getElementById('eda-mae').textContent = r.mae ? '~' + Math.round(r.mae) + ' нТл' : '—';
+  document.getElementById('eda-mae').textContent = r.mape ? '~' + r.mape.toFixed(2) + ' %' : '—';
   document.getElementById('m-anomalies').textContent = r.anomalyCount || 0;
   document.getElementById('m-threshold').textContent = r.threshold ? r.threshold.toFixed(2) : '—';
   document.getElementById('m-coverage').textContent = r.coverage || '—';
   document.getElementById('m-gaps').textContent = r.gapCount || 0;
-  document.getElementById('m-mae').textContent = r.mae ? Math.round(r.mae) : '—';
+  document.getElementById('m-mae').textContent = r.mape ? r.mape.toFixed(2) + ' %' : '—';
   
   // Обновляем EDA метрики
   const totalMinutes = r.values?.length || 0;
@@ -601,7 +601,7 @@ function applyResult(r) {
   renderMainChartFromResult(r);
   renderAnomalyChart(r.scores || [], r.threshold || -0.3);
   renderGapDistChart(r.gapLengths || []);
-  renderModelChart(r.modelMAEs || {});
+  renderModelChart(r.modelMAPEs || {});
  
   // Zoom кнопка
   if (r.gapIndices && r.gapIndices.length > 0) {
@@ -748,7 +748,7 @@ function renderModelChart(maes) {
   const ctx = document.getElementById('chart-models').getContext('2d');
   charts['models'] = new Chart(ctx, {
     type: 'bar',
-    data: { labels, datasets: [{ label: 'MAE (нТл)', data, backgroundColor: colors, borderWidth: 0 }] },
+    data: { labels, datasets: [{ label: 'MAPE (%)', data, backgroundColor: colors, borderWidth: 0 }] },
     options: {
       indexAxis: 'y',
       responsive: true, maintainAspectRatio: false, animation: false,

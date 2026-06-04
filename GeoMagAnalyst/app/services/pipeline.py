@@ -79,13 +79,13 @@ async def run_pipeline(file, impute_model: str, anomaly_model: str):
         "coverage":  _clean(anomaly_result.get("coverage",  0.0)),
 
 
-        "mae": _clean(impute_result.get("mae", 0.0)),
+        "mape": _clean(impute_result.get("mape", 0.0)),
 
         "metricsByLength": metrics_by_length,
 
         "metricsSummary": metrics_summary,
 
-        "modelMAEs": {
+        "modelMAPEs": {
             k: _clean(v)
             for k, v in impute_result.get("model_metrics", {}).items()
         },
