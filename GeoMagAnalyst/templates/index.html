@@ -157,6 +157,23 @@
   }
   .run-btn:hover { background: #238636; }
   .run-btn:disabled { background: var(--bg2); color: var(--text3); border-color: var(--border); cursor: not-allowed; }
+
+  .dl-btn {
+    width: 100%;
+    margin-top: 8px;
+    background: var(--blue-bg);
+    color: var(--blue);
+    border: 1px solid #1f6feb;
+    border-radius: 6px;
+    padding: 9px;
+    font-family: inherit;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: background 0.15s;
+    display: none;
+  }
+  .dl-btn:hover { background: #1f4a7a; }
  
   /* progress */
   .progress-wrap { margin-top: 8px; display: none; }
@@ -306,6 +323,7 @@
         <div class="progress-bar-bg"><div class="progress-bar" id="progress-bar"></div></div>
         <div class="progress-label" id="progress-label">загрузка файла...</div>
       </div>
+      <button class="dl-btn" id="dl-btn">↓ Скачать заполненный CSV</button>
     </div>
  
   </div>
@@ -401,6 +419,7 @@
 //  STATE
 // ═══════════════════════════════════════════════
 let parsedData = null;
+let lastResult = null;
 let charts = {};
 const API_BASE = 'http://localhost:8080'; 
  
@@ -553,6 +572,8 @@ runBtn.addEventListener('click', async () => {
 //  APPLY RESULT → UI
 // ═══════════════════════════════════════════════
 function applyResult(r) {
+  lastResult = r;
+  document.getElementById('dl-btn').style.display = 'block';
   // Обновляем метрики
   document.getElementById('eda-anomalies').textContent = r.anomalyCount || 0;
   document.getElementById('eda-mae').textContent = r.mae ? '~' + Math.round(r.mae) + ' нТл' : '—';
@@ -591,6 +612,32 @@ function applyResult(r) {
   }
 }
  
+// ═══════════════════════════════════════════════
+//  DOWNLOAD FILLED CSV
+// ═══════════════════════════════════════════════
+document.getElementById('dl-btn').addEventListener('click', () => {
+  if (!lastResult) return;
+  const rows = lastResult.rows;
+  const filled = lastResult.filled;
+  const gapSet = new Set(lastResult.gapIndices || []);
+
+  let csv = 'seconds,value,is_gap\n';
+  for (let i = 0; i < rows.length; i++) {
+    const sec = rows[i].seconds;
+    const val = filled[i] !== undefined ? filled[i] : rows[i].value;
+    const gap = gapSet.has(i) ? 1 : 0;
+    csv += `${sec},${val},${gap}\n`;
+  }
+
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'filled_data.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
 // ═══════════════════════════════════════════════
 //  CHARTS
 // ═══════════════════════════════════════════════
