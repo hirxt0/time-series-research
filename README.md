@@ -3,6 +3,7 @@
 ### Зависимости
 
 ```txt
+python <= 3.11
 fastapi
 uvicorn[standard]
 python-multipart
