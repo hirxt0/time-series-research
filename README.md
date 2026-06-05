@@ -37,7 +37,7 @@ docker build -t geomag-analyst .
 # Запустить контейнер
 docker run -p 8080:8080 geomag-analyst
 ```
-# Отчёт: https://disk.yandex.ru/client/disk/Отчёт
+# [Отчёт](https://docs.google.com/document/d/1-uZSqbcDSaVSJOPrZW6uKtuwQY7IuUPs/edit?usp=sharing&ouid=105511242265579461537&rtpof=true&sd=true)
 
 
 ###  Проблема
